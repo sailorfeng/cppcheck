@@ -6219,7 +6219,8 @@ void Tokenizer::removePragma()
     if (isCPP() && mSettings->standards.cpp == Standards::CPP03)
         return;
     for (Token *tok = list.front(); tok; tok = tok->next()) {
-        while (Token::simpleMatch(tok, "_Pragma (")) {
+        // support remove __pragma which is MSVC specific keyword
+        while (Token::simpleMatch(tok, "_Pragma (") || Token::simpleMatch(tok, "__pragma (")) {
             Token::eraseTokens(tok, tok->linkAt(1)->next());
             tok->deleteThis();
         }

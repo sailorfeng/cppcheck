@@ -978,7 +978,7 @@ unsigned int CppCheck::checkFile(const std::string& filename, const std::string 
             }
         }
 
-        if (!hasValidConfig && configurations.size() > 1 && mSettings.severity.isEnabled(Severity::information)) {
+        if (!hasValidConfig && configurations.size() > 0 && mSettings.severity.isEnabled(Severity::information)) {
             std::string msg;
             msg = "This file is not analyzed. Cppcheck failed to extract a valid configuration. Use -v for more details.";
             msg += "\nThis file is not analyzed. Cppcheck failed to extract a valid configuration. The tested configurations have these preprocessor errors:";

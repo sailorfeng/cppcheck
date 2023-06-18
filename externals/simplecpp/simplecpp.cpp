@@ -36,6 +36,7 @@
 #include <sstream> // IWYU pragma: keep
 #include <stack>
 #include <stdexcept>
+#include <shared_mutex>
 #if __cplusplus >= 201103L
 #include <unordered_map>
 #endif
@@ -2258,20 +2259,64 @@ private:
     CRITICAL_SECTION& m_criticalSection;
 };
 
-class RealFileNameMap {
+// Optimize std::map<std::string, std::string> find performance
+class FastString {
 public:
-    RealFileNameMap() {
-        InitializeCriticalSection(&m_criticalSection);
+    FastString(const std::string& str) : data(str), cached_hash(0) {}
+    FastString(const char* str) : data(str), cached_hash(0) {}
+    FastString(const FastString& other) : data(other.data), cached_hash(other.cached_hash) {}
+
+    const std::string& str() const {
+        return data;
     }
 
-    ~RealFileNameMap() {
-        DeleteCriticalSection(&m_criticalSection);
+    size_t hash() const {
+        if (cached_hash == 0) {
+            std::hash<std::string> hasher;
+            cached_hash = hasher(data);
+        }
+        return cached_hash;
+    }
+
+    bool operator==(const FastString& other) const {
+        if (hash() != other.hash()) {
+            return false;
+        }
+        return data == other.data;
+    }
+
+private:
+    std::string data;
+    mutable size_t cached_hash;
+};
+
+// Provide hash specialization for FastString to use with std::unordered_map
+namespace std {
+    template <>
+    struct hash<FastString> {
+        size_t operator()(const FastString& fs) const {
+            return fs.hash();
+        }
+    };
+}
+
+class FastStringMap {
+    using MapType = std::unordered_map<FastString, std::string>;
+public:
+    FastStringMap() {
+        // InitializeCriticalSection(&m_criticalSection);
+    }
+
+    ~FastStringMap() {
+        // DeleteCriticalSection(&m_criticalSection);
     }
 
     bool getCacheEntry(const std::string& path, std::string* returnPath) {
-        ScopedLock lock(m_criticalSection);
+        // ScopedLock lock(m_criticalSection);
+        std::shared_lock<std::shared_mutex> read_lock(rwlock);
 
-        std::map<std::string, std::string>::iterator it = m_fileMap.find(path);
+        FastString fastPath(path);
+        MapType::iterator it = m_fileMap.find(fastPath);
         if (it != m_fileMap.end()) {
             *returnPath = it->second;
             return true;
@@ -2280,16 +2325,21 @@ public:
     }
 
     void addToCache(const std::string& path, const std::string& actualPath) {
-        ScopedLock lock(m_criticalSection);
-        m_fileMap[path] = actualPath;
+        // ScopedLock lock(m_criticalSection);
+        std::unique_lock<std::shared_mutex> write_lock(rwlock);
+
+        FastString fastPath(path);
+        m_fileMap[fastPath] = actualPath;
     }
 
 private:
-    std::map<std::string, std::string> m_fileMap;
-    CRITICAL_SECTION m_criticalSection;
+    // std::map<std::string, std::string> m_fileMap;
+    // CRITICAL_SECTION m_criticalSection;
+    MapType m_fileMap;
+    std::shared_mutex rwlock;
 };
 
-static RealFileNameMap realFileNameMap;
+static FastStringMap realFileNameMap;
 
 static bool realFileName(const std::string &f, std::string *result)
 {
@@ -2330,7 +2380,7 @@ static bool realFileName(const std::string &f, std::string *result)
     return true;
 }
 
-static RealFileNameMap realFilePathMap;
+static FastStringMap realFilePathMap;
 
 /** Change case in given path to match filesystem */
 static std::string realFilename(const std::string &f)
@@ -2895,31 +2945,35 @@ static const simplecpp::Token *gotoNextLine(const simplecpp::Token *tok)
 class NonExistingFilesCache {
 public:
     NonExistingFilesCache() {
-        InitializeCriticalSection(&m_criticalSection);
+        // InitializeCriticalSection(&m_criticalSection);
     }
 
     ~NonExistingFilesCache() {
-        DeleteCriticalSection(&m_criticalSection);
+        // DeleteCriticalSection(&m_criticalSection);
     }
 
     bool contains(const std::string& path) {
-        ScopedLock lock(m_criticalSection);
+        std::shared_lock<std::shared_mutex> read_lock(rwlock);
+        // ScopedLock lock(m_criticalSection);
         return (m_pathSet.find(path) != m_pathSet.end());
     }
 
     void add(const std::string& path) {
-        ScopedLock lock(m_criticalSection);
+        // ScopedLock lock(m_criticalSection);
+        std::unique_lock<std::shared_mutex> write_lock(rwlock);
         m_pathSet.insert(path);
     }
 
     void clear() {
-        ScopedLock lock(m_criticalSection);
+        // ScopedLock lock(m_criticalSection);
+        std::unique_lock<std::shared_mutex> write_lock(rwlock);
         m_pathSet.clear();
     }
 
 private:
     std::set<std::string> m_pathSet;
-    CRITICAL_SECTION m_criticalSection;
+    // CRITICAL_SECTION m_criticalSection;
+    std::shared_mutex rwlock;
 };
 
 static NonExistingFilesCache nonExistingFilesCache;

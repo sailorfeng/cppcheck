@@ -291,6 +291,7 @@ void ImportProject::FileSettings::parseCommand(const std::string& command)
         if (pos >= command.size())
             break;
         const char F = command[pos++];
+        // support /FI
         if (std::strchr("DUI", F)) {
             while (pos < command.size() && command[pos] == ' ')
                 ++pos;
@@ -306,8 +307,28 @@ void ImportProject::FileSettings::parseCommand(const std::string& command)
             if (!defval.empty())
                 defs += defval;
             defs += ';';
-        } else if (F=='U')
+        } else if (F=='U') {
             undefs.insert(fval);
+        } else if (F=='F' && fval=="I") { // support /FI that include a specified header file
+            ++pos; // just assume that only one space after, don't blame me! Something similar below.
+            std::string i = readUntil(command, &pos, " ");
+            if (i.size() > 1 && i[0] == '\"' && i.back() == '\"')
+                i = unescape(i.substr(1, i.size() - 2));
+            // Open the header file and parse it for defines
+            std::ifstream fin(i);
+            if (fin.is_open()) {
+                std::string line;
+                while (std::getline(fin, line)) {
+                    if (line.compare(0, 8, "#define ") == 0)  // define line
+                    {
+                        std::string def = line.substr(8);
+                        // replace space in def with =
+                        std::replace(def.begin(), def.end(), ' ', '=');
+                        defs += def + ';';
+                    }
+                }
+            }
+        }
         else if (F=='I') {
             std::string i = fval;
             if (i.size() > 1 && i[0] == '\"' && i.back() == '\"')
@@ -394,6 +415,25 @@ bool ImportProject::importCompileCommands(std::istream &istr)
                 for (const picojson::value& arg : obj["arguments"].get<picojson::array>()) {
                     if (arg.is<std::string>()) {
                         std::string str = arg.get<std::string>();
+
+                        // response file supported
+                        if (str[0] == '@') {
+                            std::ifstream ifs(str.substr(1));
+                            if (!ifs) {
+                                printError("cannot open response file " + str);
+                                return false;
+                            }
+                            std::string line;
+                            while (std::getline(ifs, line)) {
+                                if (line.empty())
+                                    continue;
+                                if (line[0] == '#')
+                                    continue;
+                                command += line + " ";
+                            }
+                            continue;
+                        }
+
                         if (str.find(' ') != std::string::npos)
                             str = "\"" + str + "\"";
                         command += str + " ";

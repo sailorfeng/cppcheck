@@ -643,7 +643,7 @@ unsigned int CppCheck::checkFile(const std::string& filename, const std::string 
     if (!mSettings.quiet) {
         std::string fixedpath = Path::simplifyPath(filename);
         fixedpath = Path::toNativeSeparators(fixedpath);
-        mErrorLogger.reportOut(std::string("Checking ") + fixedpath + ' ' + cfgname + std::string("..."), Color::FgGreen);
+        mErrorLogger.reportOut(std::string("Begin processing ") + fixedpath + ' ' + cfgname + std::string("..."), Color::FgGreen);
 
         if (mSettings.verbose) {
             mErrorLogger.reportOut("Defines:" + mSettings.userDefines);
@@ -891,7 +891,11 @@ unsigned int CppCheck::checkFile(const std::string& filename, const std::string 
                 if (!mSettings.quiet && (!mCurrentConfig.empty() || checkCount > 1)) {
                     std::string fixedpath = Path::simplifyPath(filename);
                     fixedpath = Path::toNativeSeparators(fixedpath);
-                    mErrorLogger.reportOut("Checking " + fixedpath + ": " + mCurrentConfig + "...", Color::FgGreen);
+                    if (mSettings.verbose) {
+                        mErrorLogger.reportOut("Checking " + fixedpath + ": " + mCurrentConfig + "...", Color::FgGreen);
+                    } else {
+                        mErrorLogger.reportOut("Checking " + fixedpath + "...", Color::FgGreen);
+                    }
                 }
 
                 if (!tokenizer.tokens())

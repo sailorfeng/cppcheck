@@ -1,5 +1,7 @@
 file(GLOB hdrs "*.h")
 file(GLOB srcs "*.cpp")
+# use c++17
+set(CMAKE_CXX_STANDARD 17)
 
 add_library(simplecpp_objs OBJECT ${srcs} ${hdrs})
 if (BUILD_CORE_DLL)

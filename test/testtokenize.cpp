@@ -477,8 +477,7 @@ private:
 
         if (tokenizer.tokens())
             return tokenizer.tokens()->stringifyList(false, expand, false, true, false, nullptr, nullptr);
-        else
-            return "";
+        return "";
     }
 
 #define tokenizeAndStringifyWindows(...) tokenizeAndStringifyWindows_(__FILE__, __LINE__, __VA_ARGS__)
@@ -504,8 +503,7 @@ private:
 
         if (tokenizer.tokens())
             return tokenizer.tokens()->stringifyList(false, expand, false, true, false, nullptr, nullptr);
-        else
-            return "";
+        return "";
     }
 
     std::string tokenizeAndStringify_(const char* file, int line, const char code[], const Settings &settings, const char filename[] = "test.cpp") {
@@ -6919,6 +6917,9 @@ private:
                                              "}"));
         ASSERT_NO_THROW(tokenizeAndStringify("template <class T> constexpr int n = 1;\n"
                                              "template <class T> T a[n<T>];\n"));
+
+        ASSERT_EQUALS("std :: vector < int > x ;", // #11785
+                      tokenizeAndStringify("std::vector<int> typedef v; v x;\n"));
 
 
         // op op

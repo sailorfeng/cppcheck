@@ -2098,6 +2098,17 @@ void CheckClass::checkConst()
 
             const bool returnsPtrOrRef = isPointerOrReference(func.retDef, func.tokenDef);
 
+            if (Function::returnsPointer(&func, /*unknown*/ true) || Function::returnsReference(&func, /*unknown*/ true, /*includeRValueRef*/ true)) { // returns const/non-const depending on template arg
+                bool isTemplateArg = false;
+                for (const Token* tok2 = func.retDef; precedes(tok2, func.token); tok2 = tok2->next())
+                    if (tok2->isTemplateArg() && tok2->str() == "const") {
+                        isTemplateArg = true;
+                        break;
+                    }
+                if (isTemplateArg)
+                    continue;
+            }
+
             if (func.isOperator()) { // Operator without return type: conversion operator
                 const std::string& opName = func.tokenDef->str();
                 if (opName.compare(8, 5, "const") != 0 && (endsWith(opName,'&') || endsWith(opName,'*')))
@@ -3023,6 +3034,73 @@ void CheckClass::overrideError(const Function *funcInBase, const Function *funcI
                 "The " + funcType + " '$symbol' overrides a " + funcType + " in a base class but is not marked with a 'override' specifier.",
                 CWE(0U) /* Unknown CWE! */,
                 Certainty::normal);
+}
+
+void CheckClass::uselessOverrideError(const Function *funcInBase, const Function *funcInDerived)
+{
+    const std::string functionName = funcInDerived ? ((funcInDerived->isDestructor() ? "~" : "") + funcInDerived->name()) : "";
+    const std::string funcType = (funcInDerived && funcInDerived->isDestructor()) ? "destructor" : "function";
+
+    ErrorPath errorPath;
+    if (funcInBase && funcInDerived) {
+        errorPath.emplace_back(funcInBase->tokenDef, "Virtual " + funcType + " in base class");
+        errorPath.emplace_back(funcInDerived->tokenDef, char(std::toupper(funcType[0])) + funcType.substr(1) + " in derived class");
+    }
+
+    reportError(errorPath, Severity::style, "uselessOverride",
+                "$symbol:" + functionName + "\n"
+                "The " + funcType + " '$symbol' overrides a " + funcType + " in a base class but just delegates back to the base class.",
+                CWE(0U) /* Unknown CWE! */,
+                Certainty::normal);
+}
+
+static const Token* getSingleFunctionCall(const Scope* scope) {
+    const Token* const start = scope->bodyStart->next();
+    const Token* const end = Token::findsimplematch(start, ";", 1, scope->bodyEnd);
+    if (!end || end->next() != scope->bodyEnd)
+        return nullptr;
+    const Token* ftok = start;
+    if (ftok->str() == "return")
+        ftok = ftok->astOperand1();
+    else {
+        while (Token::Match(ftok, "%name%|::"))
+            ftok = ftok->next();
+    }
+    if (Token::simpleMatch(ftok, "(") && ftok->previous()->function())
+        return ftok->previous();
+    return nullptr;
+}
+
+void CheckClass::checkUselessOverride()
+{
+    if (!mSettings->severity.isEnabled(Severity::style))
+        return;
+
+    for (const Scope* classScope : mSymbolDatabase->classAndStructScopes) {
+        if (!classScope->definedType || classScope->definedType->derivedFrom.size() != 1)
+            continue;
+        for (const Function& func : classScope->functionList) {
+            if (!func.functionScope)
+                continue;
+            if (func.hasFinalSpecifier())
+                continue;
+            const Function* baseFunc = func.getOverriddenFunction();
+            if (!baseFunc || baseFunc->isPure() || baseFunc->access != func.access)
+                continue;
+            if (const Token* const call = getSingleFunctionCall(func.functionScope)) {
+                if (call->function() != baseFunc)
+                    continue;
+                std::vector<const Token*> funcArgs = getArguments(func.tokenDef);
+                std::vector<const Token*> callArgs = getArguments(call);
+                if (funcArgs.size() != callArgs.size() ||
+                    !std::equal(funcArgs.begin(), funcArgs.end(), callArgs.begin(), [](const Token* t1, const Token* t2) {
+                    return t1->str() == t2->str();
+                }))
+                    continue;
+                uselessOverrideError(baseFunc, &func);
+            }
+        }
+    }
 }
 
 void CheckClass::checkThisUseAfterFree()
